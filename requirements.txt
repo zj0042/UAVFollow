@@ -6,7 +6,7 @@ pandas
 torch
 torchvision
 matplotlib
-yaml2
+PyYAML
 seaborn
 tqdm
 imutils

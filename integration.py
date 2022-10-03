@@ -23,6 +23,11 @@ PYGAME_FPS = int(config['control']['PYGAME_FPS'])
 LOG = config.getboolean('control', 'LOG')
 CONTROL_METHOD = config['control']['CONTROL_METHOD']  # 'yolo' or 'hsv'
 
+SAVE_FRAMES = False
+MAX_CSV_LENGTH = int(config['data_collection']['MAX_CSV_LENGTH'])
+SAVE_DIR = config['data_collection']['SAVE_DIR']
+
+
 class FrontEnd(object):
     """ Maintains the Tello display and moves it through the keyboard keys.
         Press escape key to quit.
@@ -67,12 +72,23 @@ class FrontEnd(object):
         if LOG:
             self.logger = Logger(obj_plot=False, drone_plot=False)
 
+        if SAVE_FRAMES:
+            if not os.path.isdir(SAVE_DIR):
+                os.mkdir(SAVE_DIR)
+            if not os.path.isdir(SAVE_DIR + '/img'):
+                os.mkdir(SAVE_DIR + '/img')
+            self.img_counter = max(
+                [int(e.split('.')[0]) for e in os.listdir(SAVE_DIR + '/img') if e[0] != '.'] + [0]) + 1
+            self.counter_start = self.img_counter
+
     def process_frame(self, frame):
         # Displaying battery
         battery_text = "Battery: {}%".format(self.tello.get_battery())
         frame = cv2.putText(frame, battery_text, (5, 720 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         frame = cv2.putText(frame, "velocities: " + str(self.v), (5, 45), cv2.FONT_HERSHEY_SIMPLEX, 1,
                             (255, 255, 255), 2)
+        frame = cv2.putText(frame, f'saving frames: {SAVE_FRAMES}', (5, 720-45), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
         frame = np.rot90(frame)
         frame = np.flipud(frame)
 
@@ -81,6 +97,7 @@ class FrontEnd(object):
         return frame
 
     def run(self):
+        global SAVE_FRAMES
         self.tello.connect()
         self.tello.set_speed(self.speed)
 
@@ -91,6 +108,8 @@ class FrontEnd(object):
         frame_read = self.tello.get_frame_read()
 
         should_stop = False
+
+        dat_arr = []
 
         while not should_stop:
             last_time = time.time()
@@ -109,6 +128,14 @@ class FrontEnd(object):
                         self.send_rc_control = True
                     elif event.key == pygame.K_SPACE:
                         should_stop = True
+                    elif event.key == pygame.K_r:
+                        SAVE_FRAMES = not SAVE_FRAMES
+                        if not SAVE_FRAMES:
+                            pd.DataFrame(dat_arr, columns=['img name', 'control method', 'x', 'y', 'radius', 'vx', 'vy',
+                                                           'vz']).to_csv(
+                                f'{SAVE_DIR}/{self.counter_start}-{self.img_counter}.csv')
+                            dat_arr = []
+                            self.counter_start = self.img_counter
 
             self.screen.fill([0, 0, 0])
 
@@ -128,6 +155,20 @@ class FrontEnd(object):
                 self.v = list(map(int, self.v))
                 self.vx, self.vy, self.vz = self.v
 
+            if SAVE_FRAMES:
+                if rect is not None and len(rect) != 0:
+                    cv2.imsave(SAVE_DIR + f'/img/{self.img_counter}.jpg', frame)
+                    arr = [f'{self.img_counter}.jpg', CONTROL_METHOD, rect[0], rect[1], rect[2], self.vx, self.vy,
+                           self.vz]
+                    dat_arr.append(arr)
+                    if len(dat_arr) == MAX_CSV_LENGTH:
+                        pd.DataFrame(dat_arr, columns=['img name', 'control method', 'x', 'y', 'radius', 'vx', 'vy',
+                                                       'vz']).to_csv(
+                            f'{SAVE_DIR}/{self.counter_start}-{self.img_counter}.csv')
+                        dat_arr = []
+                        self.counter_start = self.img_counter + 1
+                    self.img_counter += 1
+
             # logging data
             if LOG:
                 self.logger.update_drone(np.array([self.vx, self.tello.get_speed_x()]),
@@ -140,7 +181,7 @@ class FrontEnd(object):
             frame = self.process_frame(frame)
             self.screen.blit(frame, (0, 0))
             pygame.display.update()
-            time.sleep((1/PYGAME_FPS) - (time.time()-last_time))
+            time.sleep((1 / PYGAME_FPS) - (time.time() - last_time))
 
         self.tello.land()
         self.send_rc_control = False
