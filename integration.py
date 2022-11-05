@@ -1,7 +1,6 @@
 from djitellopy import Tello
 import cv2
 import pygame
-import pandas as pd
 import numpy as np
 import os
 import time
@@ -9,9 +8,9 @@ import time
 from imutils.video import fps
 
 from yolo_detection import YoloTracker
-from hsv_detection import HsvTracker
-from motion_control import MotionController
-from data_logger import Logger
+from bangbang_motion_control import MotionController as NewMotionController
+from pid_motion_control import MotionController as NewMotionController
+from old_motion_control import MotionController as OldMotionController
 from configparser import ConfigParser
 
 config = ConfigParser()
@@ -62,24 +61,10 @@ class FrontEnd(object):
         # create update timer
         pygame.time.set_timer(pygame.USEREVENT + 1, 1000 // PYGAME_FPS)
 
-        if CONTROL_METHOD == 'yolo':
-            self.yolo_tracker = YoloTracker(config['yolo_tracker'])
-        else:
-            self.hsv_tracker = HsvTracker(config['hsv_tracker'])
+        self.yolo_tracker = YoloTracker(config['yolo_tracker'])
 
-        self.motion_controller = MotionController()
-
-        if LOG:
-            self.logger = Logger(obj_plot=False, drone_plot=False)
-
-        if SAVE_FRAMES:
-            if not os.path.isdir(SAVE_DIR):
-                os.mkdir(SAVE_DIR)
-            if not os.path.isdir(SAVE_DIR + '/img'):
-                os.mkdir(SAVE_DIR + '/img')
-            self.img_counter = max(
-                [int(e.split('.')[0]) for e in os.listdir(SAVE_DIR + '/img') if e[0] != '.'] + [0]) + 1
-            self.counter_start = self.img_counter
+        self.new_motion_controller = NewMotionController()
+        self.old_motion_controller = OldMotionController()
 
     def process_frame(self, frame):
         # Displaying battery
@@ -97,7 +82,6 @@ class FrontEnd(object):
         return frame
 
     def run(self):
-        global SAVE_FRAMES
         self.tello.connect()
         self.tello.set_speed(self.speed)
 
@@ -108,8 +92,6 @@ class FrontEnd(object):
         frame_read = self.tello.get_frame_read()
 
         should_stop = False
-
-        dat_arr = []
 
         while not should_stop:
             last_time = time.time()
@@ -128,55 +110,27 @@ class FrontEnd(object):
                         self.send_rc_control = True
                     elif event.key == pygame.K_SPACE:
                         should_stop = True
-                    elif event.key == pygame.K_r:
-                        SAVE_FRAMES = not SAVE_FRAMES
-                        if not SAVE_FRAMES:
-                            pd.DataFrame(dat_arr, columns=['img name', 'control method', 'x', 'y', 'radius', 'vx', 'vy',
-                                                           'vz']).to_csv(
-                                f'{SAVE_DIR}/{self.counter_start}-{self.img_counter}.csv')
-                            dat_arr = []
-                            self.counter_start = self.img_counter
 
             self.screen.fill([0, 0, 0])
 
             orig_frame = frame_read.frame
-            if CONTROL_METHOD == 'yolo':
-                frame, rect = self.yolo_tracker.get_rect(orig_frame)
-            else:
-                frame, rect = self.hsv_tracker.get_rect(orig_frame)
+            frame, rect = self.yolo_tracker.get_rect(orig_frame)
 
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Commented out to color correct
 
             dtime = time.time() - last_time
-            self.motion_controller.add_location(rect, dtime)
-            self.v = self.motion_controller.instruct(diagnostic=False)
+            v = self.new_motion_controller.instruct(rect, dtime)
+            old_v = self.old_motion_controller.instruct(rect, time)
+            for i in range(len(v)):
+                if v[i] is None:
+                    v[i] = old_v[i]
+
+            print(f"obj pixels: x:{rect[0]}, y:{rect[1]}, size:{rect[2]})")
+            print(f"left/right: {v[0]}\t up/down: {v[1]}\t forward/back: {v[2]}")
 
             if self.tello.is_flying:
-                self.v = list(map(int, self.v))
-                self.vx, self.vy, self.vz = self.v
-
-            if SAVE_FRAMES:
-                if rect is not None and len(rect) != 0:
-                    cv2.imsave(SAVE_DIR + f'/img/{self.img_counter}.jpg', frame)
-                    arr = [f'{self.img_counter}.jpg', CONTROL_METHOD, rect[0], rect[1], rect[2], self.vx, self.vy,
-                           self.vz]
-                    dat_arr.append(arr)
-                    if len(dat_arr) == MAX_CSV_LENGTH:
-                        pd.DataFrame(dat_arr, columns=['img name', 'control method', 'x', 'y', 'radius', 'vx', 'vy',
-                                                       'vz']).to_csv(
-                            f'{SAVE_DIR}/{self.counter_start}-{self.img_counter}.csv')
-                        dat_arr = []
-                        self.counter_start = self.img_counter + 1
-                    self.img_counter += 1
-
-            # logging data
-            if LOG:
-                self.logger.update_drone(np.array([self.vx, self.tello.get_speed_x()]),
-                                         np.array([self.vy, self.tello.get_speed_y()]),
-                                         np.array([self.vz, self.tello.get_speed_z()]))
-                self.logger.update_obj(self.motion_controller.get_x_info(),
-                                       self.motion_controller.get_y_info(),
-                                       self.motion_controller.get_z_info())
+                v = list(map(int, v))
+                self.vx, self.vy, self.vz = v
 
             frame = self.process_frame(frame)
             self.screen.blit(frame, (0, 0))
