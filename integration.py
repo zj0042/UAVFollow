@@ -113,8 +113,9 @@ class FrontEnd(object):
 
             self.screen.fill([0, 0, 0])
 
-            orig_frame = frame_read.frame
-            frame, rect = self.yolo_tracker.get_rect(orig_frame)
+            frame = frame_read.frame
+            frame, rect = self.yolo_tracker.get_rect(frame)
+            print(f"obj pixels: x:{rect[0]}\t y:{rect[1]}\t size:{rect[2]})")
 
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Commented out to color correct
 
@@ -125,7 +126,6 @@ class FrontEnd(object):
                 if v[i] is None:
                     v[i] = old_v[i]
 
-            print(f"obj pixels: x:{rect[0]}, y:{rect[1]}, size:{rect[2]})")
             print(f"left/right: {v[0]}\t up/down: {v[1]}\t forward/back: {v[2]}")
 
             if self.tello.is_flying:
