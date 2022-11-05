@@ -4,13 +4,10 @@ import numpy as np
 class MotionController:
     def instruct(self, rect, dtime):
         # -480 <= obj_x <= 480, negative: left side of the frame, positive: right side of the frame
-        error_x = rect[0] - 960/2
+        error_x = (rect[0] - 960/2) / (960/2)
 
         # -360 <= obj_y <= 360, negative: bottom side of the frame, positive: top side of the frame
-        error_y = rect[1] - 720/2
-
-        # distance from the corners to the center, in number of pixels
-        error_size = rect[2]
+        error_y = (rect[1] - 720/2) / (760/2)
 
         # these variables represent the velocities of the drone
         vx = 0  # -100 <= vx <= 100, negative:left, positive:right

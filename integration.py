@@ -61,7 +61,7 @@ class FrontEnd(object):
         # create update timer
         pygame.time.set_timer(pygame.USEREVENT + 1, 1000 // PYGAME_FPS)
 
-        self.yolo_tracker = YoloTracker(config['yolo_tracker'])
+        self.notecard_tracker = YoloTracker(config['yolo_tracker'])
 
         self.new_motion_controller = NewMotionController()
         self.old_motion_controller = OldMotionController()
@@ -114,7 +114,7 @@ class FrontEnd(object):
             self.screen.fill([0, 0, 0])
 
             frame = frame_read.frame
-            frame, rect = self.yolo_tracker.get_rect(frame)
+            frame, rect = self.notecard_tracker.get_rect(frame)
             print(f"obj pixels: x:{rect[0]}\t y:{rect[1]}\t size:{rect[2]})")
 
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Commented out to color correct
